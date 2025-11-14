@@ -1,0 +1,12 @@
+# Docker Compose for local testing
+version: '3.8'
+
+services:
+  scraper:
+    build: .
+    image: sc-test:latest
+    environment:
+      - SCRAPERS=*
+    # Uncomment to run specific scrapers
+    # environment:
+    #   - SCRAPERS=xe,wise

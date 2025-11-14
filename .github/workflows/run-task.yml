@@ -1,0 +1,92 @@
+name: Run ECS Task with Latest Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      scrapers:
+        description: 'Scrapers to run (e.g., *, xe, wise)'
+        required: false
+        default: '*'
+
+env:
+  AWS_REGION: us-east-1
+  CONTAINER_NAME: scraper
+
+jobs:
+  run-task:
+    name: Run ECS Fargate Task
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Get Infrastructure Values from Terraform
+        id: terraform
+        working-directory: ./terraform
+        run: |
+          ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)
+          TASK_DEFINITION=$(terraform output -raw ecs_task_definition_family)
+          SECURITY_GROUP=$(terraform output -raw security_group_id)
+          SUBNET_IDS=$(terraform output -json subnet_ids | jq -r 'join(",")')
+          
+          echo "ecs_cluster=$ECS_CLUSTER" >> $GITHUB_OUTPUT
+          echo "task_definition=$TASK_DEFINITION" >> $GITHUB_OUTPUT
+          echo "security_group=$SECURITY_GROUP" >> $GITHUB_OUTPUT
+          echo "subnet_ids=$SUBNET_IDS" >> $GITHUB_OUTPUT
+          
+          echo "::notice::ECS Cluster: $ECS_CLUSTER"
+          echo "::notice::Task Definition: $TASK_DEFINITION"
+          echo "::notice::Security Group: $SECURITY_GROUP"
+          echo "::notice::Subnets: $SUBNET_IDS"
+
+      - name: Run ECS Fargate Task
+        env:
+          SCRAPERS: ${{ github.event.inputs.scrapers || '*' }}
+          ECS_CLUSTER: ${{ steps.terraform.outputs.ecs_cluster }}
+          TASK_DEFINITION: ${{ steps.terraform.outputs.task_definition }}
+          SECURITY_GROUP: ${{ steps.terraform.outputs.security_group }}
+          SUBNET_IDS: ${{ steps.terraform.outputs.subnet_ids }}
+        run: |
+          echo "Running ECS task with scrapers: $SCRAPERS"
+          
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition $TASK_DEFINITION \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"${{ env.CONTAINER_NAME }}\",\"environment\":[{\"name\":\"SCRAPERS\",\"value\":\"$SCRAPERS\"}]}]}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          
+          echo "Task started: $TASK_ARN"
+          echo "TASK_ARN=$TASK_ARN" >> $GITHUB_ENV
+
+      - name: Output task information
+        env:
+          ECS_CLUSTER: ${{ steps.terraform.outputs.ecs_cluster }}
+          TASK_DEFINITION: ${{ steps.terraform.outputs.task_definition }}
+        run: |
+          echo "::notice::Task Definition: $TASK_DEFINITION"
+          echo "::notice::Cluster: $ECS_CLUSTER"
+          echo "::notice::Task ARN: ${{ env.TASK_ARN }}"
+          echo "::notice::Scrapers: ${{ github.event.inputs.scrapers || '*' }}"
+          echo ""
+          echo "View logs at: https://console.aws.amazon.com/ecs/home?region=${{ env.AWS_REGION }}#/clusters/$ECS_CLUSTER/tasks"
