@@ -18,14 +18,24 @@ if (scrapersToRun === '*') {
   console.log(`Running selected scrapers: ${selectedScrapers.join(', ')}\n`);
 }
 
-// Execute selected scrapers
-selectedScrapers.forEach(scraperName => {
-  if (scrapers[scraperName]) {
-    scrapers[scraperName]();
-  } else {
-    console.error(`Error: Scraper '${scraperName}' not found`);
+// Execute selected scrapers sequentially
+(async () => {
+  for (const scraperName of selectedScrapers) {
+    if (scrapers[scraperName]) {
+      try {
+        await scrapers[scraperName]();
+      } catch (error) {
+        console.error(`Failed to run ${scraperName}: ${error.message}`);
+        process.exit(1);
+      }
+    } else {
+      console.error(`Error: Scraper '${scraperName}' not found`);
+      process.exit(1);
+    }
   }
-});
+  
+  console.log('All scrapers completed successfully!');
+})();
 
 // # Build the image
 // docker build -t sc-test:latest .
