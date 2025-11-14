@@ -1,3 +1,5 @@
+const cheerio = require('cheerio');
+
 /**
  * Remitely Scraper
  * Fetches exchange rates from Remitely
@@ -13,15 +15,32 @@ async function remitelyScraper() {
   try {
     // Fetch Remitely homepage
     const response = await fetch('https://www.remitly.com');
-    const html = await response.text();
     
-    console.log(`Status: ${response.status} ${response.statusText}`);
-    console.log(`Content Length: ${html.length} bytes`);
+    // Check for HTTP errors
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    
+    console.log(`✓ HTTP Status: ${response.status} ${response.statusText}`);
+    
+    const html = await response.text();
+    console.log(`✓ Content Length: ${html.length.toLocaleString()} bytes`);
+    
+    // Parse HTML with cheerio
+    const $ = cheerio.load(html);
     
     // Extract title
-    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-    if (titleMatch) {
-      console.log(`Page Title: ${titleMatch[1]}`);
+    const title = $('title').text().trim();
+    if (title) {
+      console.log(`✓ Page Title: ${title}`);
+    } else {
+      console.log('⚠ Page Title: Not found');
+    }
+    
+    // Extract meta description
+    const description = $('meta[name="description"]').attr('content');
+    if (description) {
+      console.log(`✓ Description: ${description.substring(0, 100)}...`);
     }
     
     // Simulate processing time
